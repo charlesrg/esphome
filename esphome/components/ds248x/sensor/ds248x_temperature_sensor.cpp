@@ -58,6 +58,8 @@ uint16_t DS248xTemperatureSensor::millis_to_wait_for_conversion() const {
 }
 
 bool IRAM_ATTR DS248xTemperatureSensor::read_scratch_pad() {
+  this->total_reads_++;
+
   // Retry mechanism for reading scratch pad
   for (int retry = 0; retry < 3; retry++) {
     bool result = this->parent_->reset_devices_();
@@ -87,6 +89,7 @@ bool IRAM_ATTR DS248xTemperatureSensor::read_scratch_pad() {
     }
 
     if (valid_read) {
+      this->last_good_read_time_ = millis();
       return true;
     }
 
@@ -94,6 +97,7 @@ bool IRAM_ATTR DS248xTemperatureSensor::read_scratch_pad() {
     delayMicroseconds(1000);
   }
 
+  this->failed_reads_++;
   this->parent_->status_set_warning();
   ESP_LOGE(TAG, "Failed to read scratch pad after 3 attempts");
   return false;
@@ -187,8 +191,9 @@ bool DS248xTemperatureSensor::check_scratch_pad() {
            this->scratch_pad_[8], calculated_crc, this->scratch_pad_[8]);
 
   if (!chksum_validity) {
-    ESP_LOGW(TAG, "'%s' - Scratch pad checksum invalid! Expected %02X, got %02X",
-             this->get_name().c_str(), calculated_crc, this->scratch_pad_[8]);
+    this->checksum_errors_++;
+    ESP_LOGW(TAG, "'%s' - Scratch pad checksum invalid! Expected %02X, got %02X (Error #%u)",
+             this->get_name().c_str(), calculated_crc, this->scratch_pad_[8], this->checksum_errors_);
 
     // Check for common error patterns
     bool all_zeros = true;
@@ -221,6 +226,31 @@ float DS248xTemperatureSensor::get_temp_c() {
   return temp / 128.0f;
 }
 std::string DS248xTemperatureSensor::unique_id() { return "dallas-" + str_lower_case(format_hex(this->address_)); }
+
+void DS248xTemperatureSensor::log_sensor_stats() {
+  float success_rate = this->get_success_rate();
+  uint32_t time_since_last_good = millis() - this->last_good_read_time_;
+
+  ESP_LOGI(TAG, "'%s' Stats: Reads=%u, Failed=%u, CRC_Errors=%u, Success=%.1f%%, LastGood=%ums ago",
+           this->get_name().c_str(), this->total_reads_, this->failed_reads_,
+           this->checksum_errors_, success_rate, time_since_last_good);
+
+  if (success_rate < 80.0) {
+    ESP_LOGW(TAG, "'%s' - Poor sensor reliability detected! Check wiring/connections", this->get_name().c_str());
+  }
+}
+
+void DS248xTemperatureSensor::reset_error_stats() {
+  this->total_reads_ = 0;
+  this->failed_reads_ = 0;
+  this->checksum_errors_ = 0;
+  this->last_good_read_time_ = millis();
+}
+
+float DS248xTemperatureSensor::get_success_rate() const {
+  if (this->total_reads_ == 0) return 100.0;
+  return ((float)(this->total_reads_ - this->failed_reads_) / this->total_reads_) * 100.0;
+}
 
 }  // namespace ds248x
 

@@ -76,6 +76,7 @@ void DS248xComponent::setup() {
   std::vector<uint8_t> raw_channel_sensors;
 
   ESP_LOGCONFIG(TAG, "Setting up DS248x...");
+  this->last_diagnostic_time_ = millis();
 
   if (this->sleep_pin_ != nullptr) {
     this->sleep_pin_->setup();
@@ -169,6 +170,9 @@ void DS248xComponent::setup() {
       }
     }
   }
+
+  // Setup diagnostic reporting
+  this->setup_diagnostic_timer_();
 }
 
 void DS248xComponent::dump_config() {
@@ -726,6 +730,40 @@ void DS248xComponent::force_bus_recovery_() {
 
   delayMicroseconds(1000);
   ESP_LOGD(TAG, "Bus recovery completed");
+}
+
+void DS248xComponent::log_all_sensor_stats_() {
+  ESP_LOGI(TAG, "=== DS248x Sensor Diagnostics ===");
+
+  uint32_t total_sensors = this->sensors_.size();
+  uint32_t total_reads = 0;
+  uint32_t total_failures = 0;
+  uint32_t total_crc_errors = 0;
+
+  for (auto *sensor : this->sensors_) {
+    sensor->log_sensor_stats();
+    total_reads += sensor->get_total_reads();
+    total_failures += sensor->get_failed_reads();
+    total_crc_errors += sensor->get_checksum_errors();
+  }
+
+  float overall_success = total_reads > 0 ? ((float)(total_reads - total_failures) / total_reads) * 100.0 : 100.0;
+
+  ESP_LOGI(TAG, "Overall: %u sensors, %u reads, %u failures, %u CRC errors, %.1f%% success",
+           total_sensors, total_reads, total_failures, total_crc_errors, overall_success);
+
+  if (overall_success < 90.0) {
+    ESP_LOGW(TAG, "Poor overall reliability! Check power supply, I2C wiring, and 1-Wire connections");
+  }
+
+  ESP_LOGI(TAG, "=== End Diagnostics ===");
+}
+
+void DS248xComponent::setup_diagnostic_timer_() {
+  // Log diagnostics every 5 minutes
+  this->set_interval("diagnostics", 300000, [this]() {
+    this->log_all_sensor_stats_();
+  });
 }
 
 }  // namespace ds248x

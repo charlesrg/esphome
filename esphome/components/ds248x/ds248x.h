@@ -59,6 +59,9 @@ class DS248xComponent : public PollingComponent, public i2c::I2CDevice {
   std::vector<DS248xTemperatureSensor *> channel_sensors_[NBR_CHANNELS];
   std::vector<DS248xTemperatureSensor *> sensors_;
 
+  // Diagnostic tracking
+  uint32_t last_diagnostic_time_ = 0;
+
   uint8_t read_config_();
   void write_config_(uint8_t cfg);
 
@@ -83,6 +86,10 @@ class DS248xComponent : public PollingComponent, public i2c::I2CDevice {
   // Enhanced recovery methods
   bool verify_channel_(uint8_t expected_channel);
   void force_bus_recovery_();
+
+  // Diagnostic methods
+  void log_all_sensor_stats_();
+  void setup_diagnostic_timer_();
 };
 
 }  // namespace ds248x

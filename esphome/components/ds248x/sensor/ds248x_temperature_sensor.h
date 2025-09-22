@@ -55,6 +55,14 @@ class DS248xTemperatureSensor : public sensor::Sensor {
 
   std::string unique_id() override;
 
+  // Diagnostic methods
+  void log_sensor_stats();
+  void reset_error_stats();
+  uint32_t get_total_reads() const { return total_reads_; }
+  uint32_t get_failed_reads() const { return failed_reads_; }
+  uint32_t get_checksum_errors() const { return checksum_errors_; }
+  float get_success_rate() const;
+
  protected:
   DS248xComponent *parent_;
   uint64_t address_;
@@ -66,6 +74,12 @@ class DS248xTemperatureSensor : public sensor::Sensor {
   uint8_t scratch_pad_[9] = {
       0,
   };
+
+  // Diagnostic counters
+  uint32_t total_reads_ = 0;
+  uint32_t failed_reads_ = 0;
+  uint32_t checksum_errors_ = 0;
+  uint32_t last_good_read_time_ = 0;
 };
 
 }  // namespace ds248x
