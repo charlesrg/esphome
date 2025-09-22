@@ -1,0 +1,183 @@
+substitutions:
+  devicename: test-ds248x-aggressive
+  friendly_name: "DS248x Aggressive Fix Test"
+
+esphome:
+  name: ${devicename}
+  platform: ESP32
+  board: nodemcu-32s
+
+wifi:
+  ssid: "YourWiFi"
+  password: "YourPassword"
+
+# Enable logging with debug level for DS248x
+logger:
+  level: DEBUG
+  logs:
+    ds248x: DEBUG
+    sensor: INFO
+
+# I2C configuration with reduced frequency for better signal integrity
+i2c:
+  sda: GPIO13
+  scl: GPIO16
+  id: bus_a
+  frequency: 50kHz  # Very low frequency for maximum reliability
+  scan: true
+
+# DS248x configuration optimized for problematic setups
+ds248x:
+  i2c_id: bus_a
+  type: ds2482-800
+  address: 0x18  # Default address
+  active_pullup: true     # Enable for better signal integrity
+  strong_pullup: true     # Critical for long cable runs
+  bus_sleep: false        # Disable for maximum stability
+  hub_sleep: false        # Keep hub fully active
+  update_interval: 60s    # Longer interval to reduce bus stress
+
+# Example sensor configuration with enhanced filtering
+sensor:
+  # Channel 0 sensors
+  - platform: ds248x
+    name: "WaterHeater_Coolant_IN"
+    address: 0x280000DEADBEEF01  # Replace with actual addresses
+    channel: 0
+    resolution: 12
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 5      # Larger window for better filtering
+          send_every: 2       # Send every other reading
+      - delta: 0.5            # Only send if change > 0.5°C
+
+  - platform: ds248x
+    name: "Pump_to_Home"
+    address: 0x280000DEADBEEF02
+    channel: 1
+    resolution: 12
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 5
+          send_every: 2
+      - delta: 0.5
+
+  - platform: ds248x
+    name: "TruckEngine"
+    address: 0x280000DEADBEEF03
+    channel: 2
+    resolution: 11          # Lower resolution for faster conversion
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 5
+          send_every: 2
+      - delta: 0.5
+
+  - platform: ds248x
+    name: "WaterHeater_Coolant_OUT"
+    address: 0x280000DEADBEEF04
+    channel: 3
+    resolution: 12
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 5
+          send_every: 2
+      - delta: 0.5
+
+  # Problem sensors mentioned in logs
+  - platform: ds248x
+    name: "maybeBath_elbow"
+    address: 0x280000DEADBEEF05
+    channel: 4
+    resolution: 11          # Lower resolution for problematic sensor
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 7      # Larger filter for problem sensor
+          send_every: 3
+      - delta: 1.0            # Higher delta threshold
+
+  - platform: ds248x
+    name: "maybe_Bath_Faucet"
+    address: 0x280000DEADBEEF06
+    channel: 5
+    resolution: 12
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 5
+          send_every: 2
+      - delta: 0.5
+
+  - platform: ds248x
+    name: "maybe_whale_in"
+    address: 0x280000DEADBEEF07
+    channel: 6
+    resolution: 11          # Lower resolution for problematic sensor
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 7      # Larger filter for problem sensor
+          send_every: 3
+      - delta: 1.0
+
+  - platform: ds248x
+    name: "maybe_whale_out"
+    address: 0x280000DEADBEEF08
+    channel: 7
+    resolution: 12
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 5
+          send_every: 2
+      - delta: 0.5
+
+  # Additional sensors using index instead of address
+  - platform: ds248x
+    name: "Urine_Tank"
+    index: 8  # Will use 8th discovered sensor
+    channel: 0
+    resolution: 11
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 5
+          send_every: 2
+      - delta: 0.5
+
+  - platform: ds248x
+    name: "Gray_Water_Tank"
+    index: 9
+    channel: 1
+    resolution: 11          # Lower resolution for problematic sensor
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 7      # Larger filter for problem sensor
+          send_every: 3
+      - delta: 1.0
+
+  - platform: ds248x
+    name: "Fresh_to_Pump"
+    index: 10
+    channel: 2
+    resolution: 11          # Lower resolution for problematic sensor
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 7      # Larger filter for problem sensor
+          send_every: 3
+      - delta: 1.0
+
+# Hardware recommendations in comments:
+# 1. Add 4.7kΩ pull-up resistors on I2C lines if not present
+# 2. Use twisted pair or shielded cables for long 1-Wire runs
+# 3. Add 120Ω termination resistor at end of long 1-Wire lines
+# 4. Ensure stable 3.3V power supply
+# 5. Consider using external DS2482-800 module with better power filtering
+# 6. Keep 1-Wire cables away from power lines and switching circuits

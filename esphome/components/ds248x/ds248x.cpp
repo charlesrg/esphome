@@ -274,24 +274,46 @@ void DS248xComponent::update() {
 
     this->status_clear_warning();
     if (nbr_sensors_on_channel && this->set_channel_(channel)) {
+      ESP_LOGD(TAG, "Starting conversion on channel %u with %d sensors", channel, nbr_sensors_on_channel);
+
       if (this->enable_bus_sleep_) {
         this->write_config_(this->read_config_() & ~DS248X_CONFIG_POWER_DOWN);
+        delayMicroseconds(200);  // Allow bus to wake up
       }
 
-      bool result = this->reset_devices_();
+      // Multiple reset attempts for reliability
+      bool result = false;
+      for (int reset_attempts = 0; reset_attempts < 3; reset_attempts++) {
+        result = this->reset_devices_();
+        if (result) {
+          break;
+        }
+        ESP_LOGW(TAG, "Reset failed on attempt %d for channel %u", reset_attempts + 1, channel);
+        delayMicroseconds(1000);
+      }
+
       if (!result) {
         this->status_set_warning();
-        ESP_LOGE(TAG, "Reset failed");
+        ESP_LOGE(TAG, "All reset attempts failed for channel %u", channel);
         return;
       }
 
+      delayMicroseconds(100);  // Additional settling after reset
+
       this->write_to_wire_(WIRE_COMMAND_SKIP);
+      delayMicroseconds(50);  // Ensure command is processed
+
       if (this->enable_strong_pullup_) {
         this->write_config_(this->read_config_() | DS248X_CONFIG_STRONG_PULLUP);
+        delayMicroseconds(100);  // Allow strong pullup to engage
       }
+
       this->write_to_wire_(DALLAS_COMMAND_START_CONVERSION);
+      delayMicroseconds(200);  // Ensure conversion command is sent
+
+      ESP_LOGV(TAG, "Conversion started on channel %u", channel);
     } else {
-      ESP_LOGV(TAG, "Cannot change channel :%u", channel);
+      ESP_LOGW(TAG, "Cannot change to channel %u (nbr_sensors=%d)", channel, nbr_sensors_on_channel);
     }
   }
 
@@ -330,19 +352,52 @@ void DS248xComponent::update() {
         return;
       }
 
+      // Additional settling time after channel switch for problematic sensors
+      delayMicroseconds(500);
+
       read_idx_++;
 
-      bool res = sensor->read_scratch_pad();
+      // Multiple attempts with aggressive bus recovery
+      bool res = false;
+      for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          ESP_LOGD(TAG, "'%s' - Retry attempt %d after failed read", sensor->get_name().c_str(), attempt + 1);
 
-      if (!res) {
-        ESP_LOGW(TAG, "'%s' - Resetting bus for read failed!", sensor->get_name().c_str());
-        sensor->publish_state(NAN);
-        this->status_set_warning();
-        return;
+          // Aggressive bus recovery between retries
+          this->reset_hub_();
+          delayMicroseconds(1000);
+
+          if (!this->set_channel_(sensor->get_channel())) {
+            ESP_LOGW(TAG, "Failed to set channel %u on retry %d", sensor->get_channel(), attempt + 1);
+            continue;
+          }
+          delayMicroseconds(500);
+        }
+
+        res = sensor->read_scratch_pad();
+        if (res && sensor->check_scratch_pad()) {
+          break;  // Success!
+        }
+
+        // Log detailed failure info
+        if (!res) {
+          ESP_LOGW(TAG, "'%s' - Read scratch pad failed on attempt %d", sensor->get_name().c_str(), attempt + 1);
+        } else {
+          ESP_LOGW(TAG, "'%s' - Scratch pad validation failed on attempt %d", sensor->get_name().c_str(), attempt + 1);
+        }
+
+        if (attempt < 2) {
+          delayMicroseconds(2000);  // Wait before retry
+        }
       }
-      if (!sensor->check_scratch_pad()) {
+
+      if (!res || !sensor->check_scratch_pad()) {
+        ESP_LOGE(TAG, "'%s' - All read attempts failed, bus may need reset", sensor->get_name().c_str());
         sensor->publish_state(NAN);
         this->status_set_warning();
+
+        // Force bus reset for next sensor
+        this->reset_hub_();
         return;
       }
 
@@ -632,6 +687,45 @@ bool DS248xComponent::search_(uint64_t *address) {
   *address = search_address_;
 
   return true;
+}
+
+bool DS248xComponent::verify_channel_(uint8_t expected_channel) {
+  if (this->ds248x_type_ == DS248xType::DS2482_100) {
+    return true;  // DS2482-100 only has one channel
+  }
+
+  uint8_t current_channel = this->get_channel_();
+  if (current_channel != expected_channel) {
+    ESP_LOGW(TAG, "Channel verification failed: expected %u, current %u", expected_channel, current_channel);
+    return false;
+  }
+  return true;
+}
+
+void DS248xComponent::force_bus_recovery_() {
+  ESP_LOGW(TAG, "Performing aggressive bus recovery");
+
+  // Multiple reset cycles with delays
+  for (int i = 0; i < 3; i++) {
+    this->reset_hub_();
+    delayMicroseconds(2000);
+
+    // Try to verify basic communication
+    uint8_t config = this->read_config_();
+    if (config != 0) {
+      ESP_LOGD(TAG, "Bus recovery cycle %d successful, config: 0x%02X", i + 1, config);
+      break;
+    }
+    ESP_LOGW(TAG, "Bus recovery cycle %d failed", i + 1);
+  }
+
+  // Reset to known good configuration
+  if (this->enable_active_pullup_) {
+    this->write_config_(DS248X_CONFIG_ACTIVE_PULLUP);
+  }
+
+  delayMicroseconds(1000);
+  ESP_LOGD(TAG, "Bus recovery completed");
 }
 
 }  // namespace ds248x

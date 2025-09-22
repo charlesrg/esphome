@@ -167,7 +167,8 @@ bool DS248xTemperatureSensor::setup_sensor() {
 }
 
 bool DS248xTemperatureSensor::check_scratch_pad() {
-  bool chksum_validity = (crc8(this->scratch_pad_, 8) == this->scratch_pad_[8]);
+  uint8_t calculated_crc = crc8(this->scratch_pad_, 8);
+  bool chksum_validity = (calculated_crc == this->scratch_pad_[8]);
   bool config_validity = false;
 
   switch (this->get_address8()[0]) {
@@ -178,17 +179,36 @@ bool DS248xTemperatureSensor::check_scratch_pad() {
       config_validity = ((this->scratch_pad_[4] & 0x10) == 0x10);
   }
 
-#ifdef ESPHOME_LOG_LEVEL_VERY_VERBOSE
-  ESP_LOGVV(TAG, "Scratch pad: %02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X (%02X)", this->scratch_pad_[0],
-            this->scratch_pad_[1], this->scratch_pad_[2], this->scratch_pad_[3], this->scratch_pad_[4],
-            this->scratch_pad_[5], this->scratch_pad_[6], this->scratch_pad_[7], this->scratch_pad_[8],
-            crc8(this->scratch_pad_, 8));
-#endif
+  // Always log scratch pad contents for debugging checksum issues
+  ESP_LOGD(TAG, "'%s' Scratch pad: %02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X.%02X (CRC calc=%02X, rx=%02X)",
+           this->get_name().c_str(),
+           this->scratch_pad_[0], this->scratch_pad_[1], this->scratch_pad_[2], this->scratch_pad_[3],
+           this->scratch_pad_[4], this->scratch_pad_[5], this->scratch_pad_[6], this->scratch_pad_[7],
+           this->scratch_pad_[8], calculated_crc, this->scratch_pad_[8]);
+
   if (!chksum_validity) {
-    ESP_LOGW(TAG, "'%s' - Scratch pad checksum invalid!", this->get_name().c_str());
+    ESP_LOGW(TAG, "'%s' - Scratch pad checksum invalid! Expected %02X, got %02X",
+             this->get_name().c_str(), calculated_crc, this->scratch_pad_[8]);
+
+    // Check for common error patterns
+    bool all_zeros = true;
+    bool all_ones = true;
+    for (int i = 0; i < 9; i++) {
+      if (this->scratch_pad_[i] != 0x00) all_zeros = false;
+      if (this->scratch_pad_[i] != 0xFF) all_ones = false;
+    }
+
+    if (all_zeros) {
+      ESP_LOGW(TAG, "'%s' - All zeros pattern detected (bus read failure)", this->get_name().c_str());
+    } else if (all_ones) {
+      ESP_LOGW(TAG, "'%s' - All ones pattern detected (no device response)", this->get_name().c_str());
+    }
+
   } else if (!config_validity) {
-    ESP_LOGW(TAG, "'%s' - Scratch pad config register invalid!", this->get_name().c_str());
+    ESP_LOGW(TAG, "'%s' - Scratch pad config register invalid! Config byte: %02X",
+             this->get_name().c_str(), this->scratch_pad_[4]);
   }
+
   return chksum_validity && config_validity;
 }
 float DS248xTemperatureSensor::get_temp_c() {

@@ -79,6 +79,10 @@ class DS248xComponent : public PollingComponent, public i2c::I2CDevice {
   uint8_t read_from_wire_();
 
   bool search_(uint64_t *address);
+
+  // Enhanced recovery methods
+  bool verify_channel_(uint8_t expected_channel);
+  void force_bus_recovery_();
 };
 
 }  // namespace ds248x
