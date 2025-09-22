@@ -277,7 +277,14 @@ void DS248xComponent::update() {
     ESP_LOGV(TAG, "Start sensor update for %i sensors", nbr_sensors_on_channel);
 
     this->status_clear_warning();
-    if (nbr_sensors_on_channel && this->set_channel_(channel)) {
+
+    // Skip channels with no sensors configured
+    if (nbr_sensors_on_channel == 0) {
+      ESP_LOGV(TAG, "Skipping channel %u (no sensors configured)", channel);
+      continue;
+    }
+
+    if (this->set_channel_(channel)) {
       ESP_LOGD(TAG, "Starting conversion on channel %u with %d sensors", channel, nbr_sensors_on_channel);
 
       if (this->enable_bus_sleep_) {
@@ -317,7 +324,7 @@ void DS248xComponent::update() {
 
       ESP_LOGV(TAG, "Conversion started on channel %u", channel);
     } else {
-      ESP_LOGW(TAG, "Cannot change to channel %u (nbr_sensors=%d)", channel, nbr_sensors_on_channel);
+      ESP_LOGW(TAG, "Failed to set channel %u for %d sensors", channel, nbr_sensors_on_channel);
     }
   }
 
