@@ -1,0 +1,63 @@
+i2c:
+  sda: GPIO13
+  scl: GPIO16
+  id: bus_a
+  frequency: 100kHz  # Reduced frequency for better reliability
+  scan: true
+
+ds248x:
+  i2c_id: bus_a
+  type: ds2482-800
+  address: 0x18  # Default address
+  active_pullup: true
+  strong_pullup: true  # Enable for long cable runs
+  bus_sleep: true      # Enable power savings
+  hub_sleep: false     # Keep hub active for stability
+  update_interval: 30s # Longer interval to reduce bus stress
+
+sensor:
+  # Temperature sensors on different channels
+  - platform: ds248x
+    address: 0x28AABBCC11223344
+    channel: 0
+    name: "Temperature Channel 0"
+    resolution: 12
+    filters:
+      - filter_out: nan  # Filter out invalid readings
+      - median:
+          window_size: 3
+          send_every: 1
+
+  - platform: ds248x
+    address: 0x28DDEEFF55667788
+    channel: 1
+    name: "Temperature Channel 1"
+    resolution: 12
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 3
+          send_every: 1
+
+  - platform: ds248x
+    address: 0x2899AABB22334455
+    channel: 2
+    name: "Temperature Channel 2"
+    resolution: 11  # Lower resolution for faster conversion
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 3
+          send_every: 1
+
+  # Alternative configuration using index instead of address
+  - platform: ds248x
+    index: 0
+    channel: 3
+    name: "Temperature Channel 3 (by index)"
+    resolution: 12
+    filters:
+      - filter_out: nan
+      - median:
+          window_size: 3
+          send_every: 1

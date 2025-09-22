@@ -58,21 +58,45 @@ uint16_t DS248xTemperatureSensor::millis_to_wait_for_conversion() const {
 }
 
 bool IRAM_ATTR DS248xTemperatureSensor::read_scratch_pad() {
-  bool result = this->parent_->reset_devices_();
-  if (!result) {
-    this->parent_->status_set_warning();
-    ESP_LOGE(TAG, "Reset failed");
-    return false;
+  // Retry mechanism for reading scratch pad
+  for (int retry = 0; retry < 3; retry++) {
+    bool result = this->parent_->reset_devices_();
+    if (!result) {
+      ESP_LOGW(TAG, "Reset failed on attempt %d", retry + 1);
+      delayMicroseconds(1000);  // Wait before retry
+      continue;
+    }
+
+    this->parent_->select_(this->address_);
+    this->parent_->write_to_wire_(DALLAS_COMMAND_READ_SCRATCH_PAD);
+
+    // Add small delay after command
+    delayMicroseconds(100);
+
+    for (uint8_t &i : this->scratch_pad_) {
+      i = this->parent_->read_from_wire_();
+    }
+
+    // Validate the read was successful by checking if we got non-zero data
+    bool valid_read = false;
+    for (int i = 0; i < 9; i++) {
+      if (this->scratch_pad_[i] != 0x00 && this->scratch_pad_[i] != 0xFF) {
+        valid_read = true;
+        break;
+      }
+    }
+
+    if (valid_read) {
+      return true;
+    }
+
+    ESP_LOGW(TAG, "Invalid scratch pad data on attempt %d", retry + 1);
+    delayMicroseconds(1000);
   }
 
-  this->parent_->select_(this->address_);
-  this->parent_->write_to_wire_(DALLAS_COMMAND_READ_SCRATCH_PAD);
-
-  for (uint8_t &i : this->scratch_pad_) {
-    i = this->parent_->read_from_wire_();
-  }
-
-  return true;
+  this->parent_->status_set_warning();
+  ESP_LOGE(TAG, "Failed to read scratch pad after 3 attempts");
+  return false;
 }
 
 bool DS248xTemperatureSensor::setup_sensor() {
